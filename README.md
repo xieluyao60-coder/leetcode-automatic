@@ -26,7 +26,35 @@ python -m playwright install chromium
 
 可以打包成 Docker 镜像，但推荐的运行方式是：容器里只运行 CLI 和 Playwright 客户端，浏览器仍使用宿主机上已经登录的 Chrome，并通过 CDP 连接。这样不会把浏览器登录态、模型密钥和运行状态打进镜像，也能避开容器内图形浏览器登录困难的问题。
 
-构建镜像：
+### 使用公共镜像
+
+项目发布的公共镜像地址：
+
+```text
+ghcr.io/xieluyao60-coder/leetcode-automatic:latest
+```
+
+用户不需要本地构建，克隆仓库后直接拉取镜像：
+
+```powershell
+git clone https://github.com/xieluyao60-coder/leetcode-automatic.git
+cd leetcode-automatic
+
+docker pull ghcr.io/xieluyao60-coder/leetcode-automatic:latest
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto init
+```
+
+后续命令都使用 `docker-compose.ghcr.yml`：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto doctor --config /data/config.yaml
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto run-seq --limit 3 --config /data/config.yaml
+```
+
+### 本地构建镜像
+
+开发者也可以自己构建镜像：
 
 ```powershell
 docker build -t leetcode-automatic:latest .
