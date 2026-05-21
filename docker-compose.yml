@@ -1,0 +1,16 @@
+name: leetcode-automatic
+
+services:
+  lc-auto:
+    build:
+      context: .
+    image: leetcode-automatic:latest
+    env_file:
+      - .env
+    volumes:
+      - ./docker-data:/data
+    working_dir: /data
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

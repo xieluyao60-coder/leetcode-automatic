@@ -22,6 +22,62 @@ pip install -e .[dev]
 python -m playwright install chromium
 ```
 
+## Docker 分发
+
+可以打包成 Docker 镜像，但推荐的运行方式是：容器里只运行 CLI 和 Playwright 客户端，浏览器仍使用宿主机上已经登录的 Chrome，并通过 CDP 连接。这样不会把浏览器登录态、模型密钥和运行状态打进镜像，也能避开容器内图形浏览器登录困难的问题。
+
+构建镜像：
+
+```powershell
+docker build -t leetcode-automatic:latest .
+# 或者
+docker compose build
+```
+
+第一次准备运行目录：
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+docker compose run --rm lc-auto init
+```
+
+然后编辑 `.env` 填入模型参数，编辑 `docker-data/config.yaml` 确认配置。Docker 专用配置默认使用：
+
+```yaml
+browser_cdp_url: http://host.docker.internal:9222
+state_db_path: /data/lc_auto.sqlite3
+artifact_dir: /data/artifacts
+```
+
+在宿主机启动可被容器连接的 Chrome：
+
+```powershell
+$chrome = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+if (!(Test-Path $chrome)) { $chrome = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+& $chrome --remote-debugging-port=9222 --user-data-dir="$PWD\.chrome-cdp-profile"
+```
+
+在这个 Chrome 中手动登录 `https://leetcode.cn/`，保持浏览器不关闭，然后从容器运行：
+
+```powershell
+docker compose run --rm lc-auto doctor --config /data/config.yaml
+docker compose run --rm lc-auto run-seq --limit 3 --config /data/config.yaml
+```
+
+不用 compose 也可以直接运行：
+
+```powershell
+docker run --rm -it --env-file .env -v "${PWD}\docker-data:/data" leetcode-automatic:latest doctor --config /data/config.yaml
+```
+
+Linux 上如果容器无法解析 `host.docker.internal`，额外加上：
+
+```powershell
+--add-host host.docker.internal:host-gateway
+```
+
+镜像不会包含 `.env`、`config.yaml`、SQLite 状态库、浏览器 profile 或运行产物；这些都通过 `docker-data/` 和本地 `.env` 管理。
+
 初始化本地配置：
 
 ```powershell

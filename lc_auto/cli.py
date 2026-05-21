@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import sys
 from urllib.error import URLError
@@ -361,13 +362,14 @@ def _cmd_run_page_chain(config: AppConfig, start_slug: str | None, allow_submit:
 
 
 def _cmd_init(force: bool = False) -> int:
+    config_template = os.getenv("LC_AUTO_INIT_CONFIG_TEMPLATE", "config.example.yaml")
     copied = []
     for source, target in (
-        ("config.example.yaml", "config.yaml"),
+        (config_template, "config.yaml"),
         (".env.example", ".env"),
         ("problems.txt", "problems.txt"),
     ):
-        source_path = Path(source)
+        source_path = _resolve_template_file(source)
         target_path = Path(target)
         if not source_path.exists():
             continue
@@ -382,6 +384,19 @@ def _cmd_init(force: bool = False) -> int:
     else:
         print("本地配置文件已存在，无需创建。")
     return 0
+
+
+def _resolve_template_file(source: str) -> Path:
+    source_path = Path(source)
+    candidates = [source_path]
+    template_dir = os.getenv("LC_AUTO_TEMPLATE_DIR")
+    if template_dir:
+        candidates.append(Path(template_dir) / source_path.name)
+    candidates.append(Path(__file__).resolve().parents[1] / source_path.name)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return source_path
 
 
 def _cmd_doctor(config_path: str, cdp_url: str | None = None) -> int:
