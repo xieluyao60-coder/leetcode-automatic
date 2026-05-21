@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.env
+config.yaml
+.browser-profile/
+.chrome-cdp-profile/
+lc_auto.sqlite3
+artifacts/
+output/

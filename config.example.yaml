@@ -1,0 +1,30 @@
+site: leetcode.cn
+language: python3
+allow_real_submit: false
+run_before_submit: false
+max_questions_per_run: 3
+max_repairs_per_problem: 3
+browser_profile_dir: ./.browser-profile
+browser_cdp_url:
+state_db_path: ./lc_auto.sqlite3
+headless: false
+slow_mo_ms: 50
+navigation_timeout_ms: 45000
+judge_timeout_ms: 120000
+min_delay_seconds: 60
+max_delay_seconds: 180
+stop_on_security_challenge: true
+skip_accepted: true
+continue_on_problem_error: false
+artifact_dir: ./artifacts
+save_screenshots: true
+save_page_html: false
+problemset_scroll_rounds: 12
+
+model:
+  provider: openai_compatible
+  api_key_env: LC_AUTO_MODEL_API_KEY
+  base_url_env: LC_AUTO_MODEL_BASE_URL
+  model_env: LC_AUTO_MODEL_NAME
+  temperature: 0.2
+  timeout_seconds: 90
