@@ -6,6 +6,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from .logging_utils import logger
 from .models import JudgeResult, ProblemSnapshot, utc_now_iso
 
 
@@ -53,9 +54,17 @@ class ArtifactWriter:
         directory = self.problem_dir(slug)
         safe_label = safe_path_part(label)
         if self.save_screenshots and hasattr(page, "save_screenshot"):
-            page.save_screenshot(directory / f"{safe_label}.png")
+            path = directory / f"{safe_label}.png"
+            try:
+                page.save_screenshot(path)
+            except Exception as exc:
+                logger.warning("Skipping screenshot artifact {}: {}", path, exc)
         if self.save_page_html and hasattr(page, "save_html"):
-            page.save_html(directory / f"{safe_label}.html")
+            path = directory / f"{safe_label}.html"
+            try:
+                page.save_html(path)
+            except Exception as exc:
+                logger.warning("Skipping HTML artifact {}: {}", path, exc)
 
     @staticmethod
     def write_text(path: Path, content: str) -> None:

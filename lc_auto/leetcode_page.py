@@ -264,7 +264,7 @@ class LeetCodePage:
         return list(collected.values())[:limit]
 
     def save_screenshot(self, path: str | Path) -> None:
-        self.page.screenshot(path=str(path), full_page=True)
+        self.page.screenshot(path=str(path), full_page=False, timeout=10000)
 
     def save_html(self, path: str | Path) -> None:
         Path(path).write_text(self.page.content(), encoding="utf-8")
