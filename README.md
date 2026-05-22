@@ -1,40 +1,14 @@
-# 力扣自动化刷题工具
+# LC Auto
 
-本项目是一个本地 Python 命令行工具，用 Playwright 控制 `leetcode.cn` 的已登录浏览器会话，完成指定题目的自动化闭环：
+一个用于 `leetcode.cn` 的本地自动化命令行工具。
 
-`获取题目 -> 调用大模型生成 Python3 解法 -> 填入编辑器 -> 提交 -> 根据提交结果修正 -> 记录状态与产物`
+它会控制你已经登录的 Chrome 浏览器，按题号顺序打开题目，调用 OpenAI-compatible 大模型生成 Python3 解法并写入编辑器。开启真实提交后，它会自动提交；提交失败时会把错误信息交给模型修正后重试。遇到 SQL、Pandas 等无法切换到 Python3 的题会自动跳过。
 
-当前默认流程是直接提交：`获取题目 -> 调用大模型生成答案 -> 填入编辑器 -> 提交`。如果提交失败，工具会把提交结果反馈给模型修正后再次提交。默认不再先点击“运行代码”。
+## 先看结论
 
-重要边界：
+推荐普通用户使用公共 Docker 镜像，不需要本地安装 Python：
 
-- 默认不会真实提交，`allow_real_submit` 默认为 `false`。
-- 不绕过验证码、风控、登录校验或反自动化机制。
-- 不做代理池、指纹伪装、批量账号或竞赛自动提交。
-- 遇到验证码、登录失效、页面安全验证、频繁访问提示或页面结构无法识别时会停止。
-
-## 安装
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e .[dev]
-python -m playwright install chromium
-```
-
-## Docker 分发
-
-可以打包成 Docker 镜像，但推荐的运行方式是：容器里只运行 CLI 和 Playwright 客户端，浏览器仍使用宿主机上已经登录的 Chrome，并通过 CDP 连接。这样不会把浏览器登录态、模型密钥和运行状态打进镜像，也能避开容器内图形浏览器登录困难的问题。
-
-### 使用公共镜像
-
-项目发布的公共镜像地址：
-
-```text
-ghcr.io/xieluyao60-coder/lc-auto:latest
-```
-
-用户不需要本地构建，克隆仓库后直接拉取镜像：
+下面命令默认使用 Windows PowerShell。macOS/Linux 用户把 `Copy-Item .env.example .env` 换成 `cp .env.example .env` 即可。
 
 ```powershell
 git clone https://github.com/xieluyao60-coder/lc-auto.git
@@ -45,74 +19,76 @@ if (!(Test-Path .env)) { Copy-Item .env.example .env }
 docker compose -f docker-compose.ghcr.yml run --rm lc-auto init
 ```
 
-后续命令都使用 `docker-compose.ghcr.yml`：
+然后做三件事：
+
+1. 编辑 `.env`，填你的模型 API 参数。
+2. 编辑 `docker-data/config.yaml`，确认是否开启真实提交。
+3. 启动一个带 CDP 端口的 Chrome，手动登录力扣。
+
+最后运行：
 
 ```powershell
 docker compose -f docker-compose.ghcr.yml run --rm lc-auto doctor --config /data/config.yaml
 docker compose -f docker-compose.ghcr.yml run --rm lc-auto run-seq --limit 3 --config /data/config.yaml
 ```
 
-### 本地构建镜像
+## 重要边界
 
-开发者也可以自己构建镜像：
+- 本工具不绕过验证码、安全验证、风控、登录校验或反自动化机制。
+- 默认不会真实提交，`allow_real_submit` 默认为 `false`。
+- 真实提交必须由用户手动改配置开启。
+- 遇到验证码、登录失效、风控提示、页面结构无法识别时会停止。
+- 遇到无法使用 Python3 的题会记录为 `unsupported_language` 并跳过。
+- 不建议在竞赛、考试、面试等不允许自动化辅助的场景使用。
+
+## 准备条件
+
+你需要：
+
+- Docker Desktop
+- Git
+- Google Chrome
+- 一个 OpenAI-compatible Chat Completions API
+
+模型接口需要兼容 `/chat/completions`。例如 OpenAI、DeepSeek 或其他兼容服务都可以。
+
+## 第一步：获取项目
 
 ```powershell
-docker build -t leetcode-automatic:latest .
-# 或者
-docker compose build
+git clone https://github.com/xieluyao60-coder/lc-auto.git
+cd lc-auto
 ```
 
-第一次准备运行目录：
+如果你已经有项目目录，直接进入该目录即可。
+
+## 第二步：初始化 Docker 运行目录
+
+拉取公共镜像：
+
+```powershell
+docker pull ghcr.io/xieluyao60-coder/lc-auto:latest
+```
+
+生成本地配置：
 
 ```powershell
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
-docker compose run --rm lc-auto init
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto init
 ```
 
-然后编辑 `.env` 填入模型参数，编辑 `docker-data/config.yaml` 确认配置。Docker 专用配置默认使用：
+初始化后会出现：
 
-```yaml
-browser_cdp_url: http://host.docker.internal:9222
-state_db_path: /data/lc_auto.sqlite3
-artifact_dir: /data/artifacts
+```text
+.env
+docker-data/config.yaml
+docker-data/problems.txt
 ```
 
-在宿主机启动可被容器连接的 Chrome：
+其中 `.env` 保存模型密钥，`docker-data/` 保存运行状态、配置和产物。它们不会被提交到 Git。
 
-```powershell
-$chrome = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-if (!(Test-Path $chrome)) { $chrome = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
-& $chrome --remote-debugging-port=9222 --user-data-dir="$PWD\.chrome-cdp-profile"
-```
+## 第三步：填写模型配置
 
-在这个 Chrome 中手动登录 `https://leetcode.cn/`，保持浏览器不关闭，然后从容器运行：
-
-```powershell
-docker compose run --rm lc-auto doctor --config /data/config.yaml
-docker compose run --rm lc-auto run-seq --limit 3 --config /data/config.yaml
-```
-
-不用 compose 也可以直接运行：
-
-```powershell
-docker run --rm -it --env-file .env -v "${PWD}\docker-data:/data" leetcode-automatic:latest doctor --config /data/config.yaml
-```
-
-Linux 上如果容器无法解析 `host.docker.internal`，额外加上：
-
-```powershell
---add-host host.docker.internal:host-gateway
-```
-
-镜像不会包含 `.env`、`config.yaml`、SQLite 状态库、浏览器 profile 或运行产物；这些都通过 `docker-data/` 和本地 `.env` 管理。
-
-初始化本地配置：
-
-```powershell
-python -m lc_auto init
-```
-
-然后在 `.env` 中填写模型服务配置：
+编辑 `.env`：
 
 ```env
 LC_AUTO_MODEL_API_KEY=你的密钥
@@ -120,32 +96,202 @@ LC_AUTO_MODEL_BASE_URL=https://api.openai.com/v1
 LC_AUTO_MODEL_NAME=你的模型名
 ```
 
-如果只想验证流程、不消耗模型额度，可以把 `config.yaml` 中的模型改成：
+如果使用 DeepSeek，通常类似：
+
+```env
+LC_AUTO_MODEL_API_KEY=你的密钥
+LC_AUTO_MODEL_BASE_URL=https://api.deepseek.com
+LC_AUTO_MODEL_NAME=deepseek-chat
+```
+
+只想测试流程、不消耗模型额度时，可以把 `docker-data/config.yaml` 里的模型配置改成：
 
 ```yaml
 model:
   provider: fake
 ```
 
-也可以直接使用仓库里的 `config.fake.yaml`。fake 模型只适合 smoke test，默认返回 Two Sum 的示例解法；使用 `config.fake.yaml` 时 `.env` 里的真实模型参数不会被读取。
+fake 模型只适合 smoke test，不适合真实刷题。
 
-## 诊断
+## 第四步：启动 Chrome 并登录力扣
 
-```powershell
-python -m lc_auto doctor --config config.yaml
-```
+工具推荐连接宿主机 Chrome，而不是在容器里打开浏览器。这样登录、安全验证和验证码都由你自己在正常 Chrome 中完成。
 
-它会检查 Python 版本、依赖、Playwright 包、配置文件、模型环境变量、本地状态库目录和浏览器 profile 目录。
-
-## 登录
+Windows PowerShell：
 
 ```powershell
-python -m lc_auto login --config config.yaml
+$chrome = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+if (!(Test-Path $chrome)) { $chrome = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+
+& $chrome --remote-debugging-port=9222 --user-data-dir="$PWD\.chrome-cdp-profile"
 ```
 
-浏览器打开后手动登录力扣。登录态会保存在 `.browser-profile/`。
+如果容器里提示连不上 Chrome，可以改成：
 
-如果 Playwright 自带 Chromium 登录时一直卡在安全验证，改用“外部 Chrome 连接模式”。这个模式不会绕过验证码，只是复用你自己打开的普通 Chrome：
+```powershell
+& $chrome --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 --user-data-dir="$PWD\.chrome-cdp-profile"
+```
+
+macOS：
+
+```bash
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$PWD/.chrome-cdp-profile"
+```
+
+Linux：
+
+```bash
+google-chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$PWD/.chrome-cdp-profile"
+```
+
+Chrome 打开后，手动访问并登录：
+
+```text
+https://leetcode.cn/
+```
+
+登录成功后保持这个 Chrome 不要关闭。
+
+## 第五步：检查环境
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto doctor --config /data/config.yaml
+```
+
+看到关键项都是 `OK` 后再运行。尤其要确认：
+
+- `model` 是 OK
+- `browser_cdp_url` 是 OK
+- `state_db_parent` 是 OK
+
+## 第六步：开始运行
+
+### 按题号顺序运行
+
+第一次从第 1 题开始：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto run-seq --start 1 --reset-progress --limit 3 --config /data/config.yaml
+```
+
+以后继续上次进度：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto run-seq --limit 3 --config /data/config.yaml
+```
+
+从指定题号重新开始：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto run-seq --start 175 --reset-progress --limit 3 --config /data/config.yaml
+```
+
+### 跑指定题目
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto run --problem two-sum --config /data/config.yaml
+```
+
+### dry-run 单题测试
+
+dry-run 不会真实提交：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto dry-run --problem two-sum --config /data/config.yaml
+```
+
+## 开启真实提交
+
+默认配置不会真实提交。要开启真实提交，编辑 `docker-data/config.yaml`：
+
+```yaml
+allow_real_submit: true
+```
+
+建议第一次真实提交时先保守设置：
+
+```yaml
+allow_real_submit: true
+max_questions_per_run: 1
+max_repairs_per_problem: 3
+min_delay_seconds: 60
+max_delay_seconds: 180
+```
+
+真实提交必须同时满足：
+
+- `allow_real_submit: true`
+- 使用 `run` 或 `run-seq`
+- 不使用 `dry-run`
+
+## 常用命令
+
+查看最近运行状态：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto status --config /data/config.yaml
+```
+
+恢复未完成题目：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto resume --config /data/config.yaml
+```
+
+导出状态：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto export --output /data/state_export.json --config /data/config.yaml
+```
+
+强制重跑已经记录为 accepted 的题：
+
+```powershell
+docker compose -f docker-compose.ghcr.yml run --rm lc-auto run-seq --start 2 --reset-progress --rerun-accepted --limit 1 --config /data/config.yaml
+```
+
+## 运行状态保存在哪里
+
+Docker 模式下，所有运行数据都在 `docker-data/`：
+
+```text
+docker-data/config.yaml        本地配置
+docker-data/lc_auto.sqlite3    题目状态和顺序进度
+docker-data/artifacts/         每题题面、代码、结果和截图
+```
+
+顺序刷题进度保存在 SQLite 的 `sequence_progress` 表里。只有真实提交并 AC 后，下一题进度才会推进。会员题、缺失题号、无法切换到 Python3 的题会跳过并记录。
+
+## 更新镜像
+
+```powershell
+docker pull ghcr.io/xieluyao60-coder/lc-auto:latest
+```
+
+如果你用的是旧仓库名或旧镜像名，请改成：
+
+```text
+https://github.com/xieluyao60-coder/lc-auto
+ghcr.io/xieluyao60-coder/lc-auto:latest
+```
+
+## 本地 Python 运行方式
+
+如果你不想用 Docker，可以本地安装：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .[dev]
+python -m playwright install chromium
+python -m lc_auto init
+```
+
+编辑 `.env` 和 `config.yaml` 后，启动 Chrome CDP：
 
 ```powershell
 $chrome = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
@@ -153,171 +299,74 @@ if (!(Test-Path $chrome)) { $chrome = "${env:ProgramFiles(x86)}\Google\Chrome\Ap
 & $chrome --remote-debugging-port=9222 --user-data-dir="$PWD\.chrome-cdp-profile"
 ```
 
-在弹出的 Chrome 里手动打开并登录 `https://leetcode.cn/`。登录成功后保持这个 Chrome 不要关闭，然后在另一个终端运行：
+本地运行：
 
 ```powershell
-python -m lc_auto doctor --config config.fake.yaml --cdp-url http://127.0.0.1:9222
-python -m lc_auto login --config config.fake.yaml --cdp-url http://127.0.0.1:9222
+python -m lc_auto doctor --config config.yaml --cdp-url http://127.0.0.1:9222
+python -m lc_auto run-seq --limit 3 --config config.yaml --cdp-url http://127.0.0.1:9222
 ```
 
-后续命令同样加上 `--cdp-url`：
-
-```powershell
-python -m lc_auto dry-run --problem two-sum --config config.fake.yaml --cdp-url http://127.0.0.1:9222
-```
-
-也可以把它写进 `config.yaml`：
+也可以把 CDP 地址写入 `config.yaml`：
 
 ```yaml
 browser_cdp_url: http://127.0.0.1:9222
 ```
 
-## 单题 dry-run
+写入后命令可以省略 `--cdp-url`。
 
-dry-run 会生成代码、填入编辑器并点击“运行代码”，但不会点击“提交”。
+## 常见问题
 
-```powershell
-python -m lc_auto dry-run --problem two-sum --config config.yaml
-```
+### doctor 提示 browser_cdp_url 不通
 
-如果要真实提交并继续下一题，不要用 `dry-run`，要使用 `run`，并在 `config.yaml` 中显式设置 `allow_real_submit: true`。
+确认 Chrome 是用 `--remote-debugging-port=9222` 启动的，并且这个 Chrome 没有关闭。
 
-fake 模型 smoke test：
-
-```powershell
-python -m lc_auto dry-run --problem two-sum --config config.fake.yaml
-```
-
-## 发现题目
-
-从题库页收集当前可见题目 slug，并写入 `problems.txt`：
-
-```powershell
-python -m lc_auto discover --limit 20 --output problems.txt --config config.yaml
-```
-
-追加模式：
-
-```powershell
-python -m lc_auto discover --limit 20 --append --config config.yaml
-```
-
-## 批量运行
-
-按 `problems.txt` 顺序运行：
-
-```powershell
-python -m lc_auto run --problems problems.txt --config config.yaml
-```
-
-运行一个题目：
-
-```powershell
-python -m lc_auto run --problem two-sum --config config.yaml
-```
-
-运行 `discover` 保存过的题目：
-
-```powershell
-python -m lc_auto run --from-discovered --limit 3 --config config.yaml
-```
-
-不准备题目列表，直接从当前浏览器题目页开始，并在 AC 后点击页面顶部“下一题”按钮继续：
-
-```powershell
-python -m lc_auto run --current --next-in-page --limit 3 --config config.yaml --cdp-url http://127.0.0.1:9222
-```
-
-从指定题开始，然后 AC 后点击页面“下一题”继续：
-
-```powershell
-python -m lc_auto run --problem two-sum --next-in-page --limit 3 --config config.yaml --cdp-url http://127.0.0.1:9222
-```
-
-真实提交必须同时满足：
-
-- `config.yaml` 中 `allow_real_submit: true`
-- 使用 `run` 命令，而不是 `dry-run`
-- 页面下一题模式也必须使用 `run --next-in-page`，`dry-run` 不会点击下一题
-
-建议第一次真实提交时设置：
+Docker 用户的 `docker-data/config.yaml` 应该是：
 
 ```yaml
-max_questions_per_run: 1
-max_repairs_per_problem: 3
+browser_cdp_url: http://host.docker.internal:9222
+```
+
+本地 Python 用户通常是：
+
+```yaml
+browser_cdp_url: http://127.0.0.1:9222
+```
+
+### 登录时安全验证过不了
+
+不要用工具尝试绕过验证。使用普通 Chrome 手动登录，再让工具连接这个 Chrome。登录成功后保持 Chrome 不关闭。
+
+### 为什么没有提交
+
+检查 `docker-data/config.yaml` 或 `config.yaml`：
+
+```yaml
 allow_real_submit: true
 ```
 
-## 按题号顺序运行
+同时确认你运行的是 `run` 或 `run-seq`，不是 `dry-run`。
 
-如果不想维护 `problems.txt`，可以直接按力扣前端题号 `1, 2, 3...` 顺序做。工具会自动把题号解析成题目 slug，并把下次要做的题号记录到 SQLite。
+### 为什么遇到 SQL 题会跳过
 
-第一次从第 1 题开始：
+当前版本只生成 Python3 解法。SQL、Pandas 或其他无法切换到 Python3 的题会记录为 `unsupported_language` 并跳到下一题。
 
-```powershell
-python -m lc_auto run-seq --start 1 --reset-progress --limit 3 --config config.yaml --cdp-url http://127.0.0.1:9222
-```
+### 如何降低风险
 
-之后继续上次进度：
-
-```powershell
-python -m lc_auto run-seq --limit 3 --config config.yaml --cdp-url http://127.0.0.1:9222
-```
-
-如果某题曾被错误记录为 accepted，可以从该题重新开始并强制重跑：
-
-```powershell
-python -m lc_auto run-seq --start 2 --reset-progress --rerun-accepted --limit 1 --config config.yaml --cdp-url http://127.0.0.1:9222
-```
-
-顺序进度保存在 `sequence_progress` 表里。只有真实提交 AC 后，`next_frontend_id` 才会推进到下一题；`dry-run` 通过不会推进进度。遇到会员题或不存在的编号会自动跳过并记录。
-如果遇到数据库题、Pandas 题等无法切换到 Python3 的题目，工具会记录为 `unsupported_language` 并跳过，然后继续处理下一题；这类题不会调用模型、不会填代码、不会提交，也不会被 `resume` 反复恢复。
-
-## 恢复、状态与导出
-
-恢复未完成题目：
-
-```powershell
-python -m lc_auto resume --config config.yaml
-```
-
-查看最近状态：
-
-```powershell
-python -m lc_auto status --config config.yaml
-```
-
-导出 SQLite 状态到 JSON：
-
-```powershell
-python -m lc_auto export --output state_export.json --config config.yaml
-```
-
-状态默认保存在 `lc_auto.sqlite3`。每题运行产物默认保存在 `artifacts/<slug>/`，包括题面、初始模板、每次尝试代码、判题结果、模型原始输出、失败截图和最终结果。
-
-## 常用配置
+第一次真实运行建议：
 
 ```yaml
-allow_real_submit: false
-run_before_submit: false
-max_questions_per_run: 3
-max_repairs_per_problem: 3
-skip_accepted: true
-continue_on_problem_error: false
-artifact_dir: ./artifacts
-save_screenshots: true
-save_page_html: false
+allow_real_submit: true
+max_questions_per_run: 1
 min_delay_seconds: 60
 max_delay_seconds: 180
 ```
 
-`run_before_submit: false` 表示写入代码后直接提交；改成 `true` 才会恢复“先运行测试用例，通过后再提交”的旧流程。
+先只跑 1 题，确认流程正常后再提高 `max_questions_per_run`。
 
-如果开启 `continue_on_problem_error: true`，普通页面解析错误会跳过当前题继续；登录失效和安全/风控提示仍会立即停止。
-
-## 测试
+## 开发者检查
 
 ```powershell
 python -m pytest
 python -m compileall lc_auto
+docker compose -f docker-compose.ghcr.yml config --quiet
 ```
