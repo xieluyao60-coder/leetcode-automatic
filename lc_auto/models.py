@@ -20,6 +20,7 @@ class Verdict(str, Enum):
     SECURITY_STOP = "security_stop"
     LOGIN_REQUIRED = "login_required"
     PAGE_ERROR = "page_error"
+    UNSUPPORTED_LANGUAGE = "unsupported_language"
     UNKNOWN = "unknown"
 
 

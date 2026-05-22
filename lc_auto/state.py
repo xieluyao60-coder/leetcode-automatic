@@ -205,11 +205,16 @@ class StateStore:
                 FROM problems
                 WHERE NOT (
                     (status = ? AND submitted = 1)
-                    OR status IN (?, ?)
+                    OR status IN (?, ?, ?)
                 )
                 ORDER BY updated_at ASC
                 """,
-                (Verdict.ACCEPTED.value, Verdict.SECURITY_STOP.value, Verdict.LOGIN_REQUIRED.value),
+                (
+                    Verdict.ACCEPTED.value,
+                    Verdict.SECURITY_STOP.value,
+                    Verdict.LOGIN_REQUIRED.value,
+                    Verdict.UNSUPPORTED_LANGUAGE.value,
+                ),
             ).fetchall()
         return [str(row["slug"]) for row in rows]
 

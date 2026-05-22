@@ -28,6 +28,19 @@ def test_dry_run_accepted_is_not_treated_as_submitted_ac(tmp_path: Path):
     assert store.list_unfinished() == []
 
 
+def test_unsupported_language_is_not_resumed(tmp_path: Path):
+    store = StateStore(tmp_path / "state.sqlite3")
+
+    store.mark_final(
+        "combine-two-tables",
+        Verdict.UNSUPPORTED_LANGUAGE,
+        submitted=False,
+        message="cannot switch to Python3",
+    )
+
+    assert store.list_unfinished() == []
+
+
 def test_discovered_problems_are_deduped_and_exported(tmp_path: Path):
     store = StateStore(tmp_path / "state.sqlite3")
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from .exceptions import PageStructureError, SafetyStop
+from .exceptions import PageStructureError, SafetyStop, UnsupportedLanguageError
 from .logging_utils import logger
 from .models import JudgeResult, ProblemSnapshot, ProblemSummary, Verdict
 
@@ -164,7 +164,7 @@ class LeetCodePage:
     def ensure_language(self, language: str) -> bool:
         self.assert_no_security_challenge()
         if language.lower() not in {"python", "python3"}:
-            raise PageStructureError("当前版本只支持 Python3。")
+            raise UnsupportedLanguageError(f"当前版本只支持 Python3，配置语言为 {language}。")
 
         language_id = self.page.evaluate(
             """
@@ -178,10 +178,14 @@ class LeetCodePage:
         if str(language_id).lower() in {"python", "python3"}:
             return True
 
-        if "Python3" in self._body_text():
+        selected_language = self._selected_language_text()
+        if selected_language.lower() in {"python", "python3"}:
             return True
 
-        patterns = (r"Python3|Python|C\+\+|Java|JavaScript", r"选择语言|语言|Language")
+        patterns = (
+            r"Python3|Python|C\+\+|Java|JavaScript|MySQL|Pandas|MS SQL|Oracle|PostgreSQL",
+            r"选择语言|语言|Language",
+        )
         last_error: Exception | None = None
         for pattern in patterns:
             try:
@@ -192,13 +196,31 @@ class LeetCodePage:
                     if option.count() > 0:
                         option.click(timeout=5000)
                         time.sleep(1)
-                        return True
+                        language_id = self.page.evaluate(
+                            """
+                            () => {
+                              const models = window.monaco && window.monaco.editor
+                                ? window.monaco.editor.getModels()
+                                : [];
+                              if (models && models.length && models[0].getLanguageId) {
+                                return models[0].getLanguageId();
+                              }
+                              return '';
+                            }
+                            """
+                        )
+                        if str(language_id).lower() in {"python", "python3"}:
+                            return True
+                        if self._selected_language_text().lower() in {"python", "python3"}:
+                            return True
             except Exception as exc:
                 last_error = exc
 
         if last_error:
-            raise PageStructureError("无法确认或切换到 Python3 语言。") from last_error
-        raise PageStructureError("无法确认或切换到 Python3 语言。")
+            raise UnsupportedLanguageError(
+                f"当前题目无法切换到 Python3，当前语言：{selected_language or 'unknown'}。"
+            ) from last_error
+        raise UnsupportedLanguageError(f"当前题目无法切换到 Python3，当前语言：{selected_language or 'unknown'}。")
 
     def fill_code(self, code: str) -> None:
         self.assert_no_security_challenge()
@@ -400,6 +422,38 @@ class LeetCodePage:
     def _body_text(self) -> str:
         try:
             return self.page.locator("body").inner_text(timeout=3000)
+        except Exception:
+            return ""
+
+    def _selected_language_text(self) -> str:
+        try:
+            return str(
+                self.page.evaluate(
+                    """
+                    () => {
+                      const names = [
+                        'Python3', 'Python', 'C++', 'Java', 'JavaScript', 'TypeScript',
+                        'Go', 'Rust', 'C#', 'C', 'Swift', 'Kotlin', 'Scala', 'Ruby',
+                        'PHP', 'MySQL', 'MS SQL Server', 'Oracle', 'Pandas', 'PostgreSQL'
+                      ];
+                      const languageNames = new Set(names.map((name) => name.toLowerCase()));
+                      const visible = (el) => {
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        return rect.width > 0 && rect.height > 0 &&
+                          style.visibility !== 'hidden' && style.display !== 'none';
+                      };
+                      const buttons = Array.from(document.querySelectorAll('button,[role="button"]'));
+                      for (const el of buttons) {
+                        const text = (el.innerText || el.textContent || '').trim();
+                        if (visible(el) && languageNames.has(text.toLowerCase())) return text;
+                      }
+                      return '';
+                    }
+                    """
+                )
+                or ""
+            ).strip()
         except Exception:
             return ""
 

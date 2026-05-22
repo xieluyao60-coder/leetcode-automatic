@@ -18,5 +18,9 @@ class PageStructureError(LCAutoError):
     """The target page structure could not be parsed safely."""
 
 
+class UnsupportedLanguageError(LCAutoError):
+    """The problem cannot be solved with the configured language."""
+
+
 class LLMError(LCAutoError):
     """The configured model provider failed."""

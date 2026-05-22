@@ -271,6 +271,7 @@ python -m lc_auto run-seq --start 2 --reset-progress --rerun-accepted --limit 1 
 ```
 
 顺序进度保存在 `sequence_progress` 表里。只有真实提交 AC 后，`next_frontend_id` 才会推进到下一题；`dry-run` 通过不会推进进度。遇到会员题或不存在的编号会自动跳过并记录。
+如果遇到数据库题、Pandas 题等无法切换到 Python3 的题目，工具会记录为 `unsupported_language` 并跳过，然后继续处理下一题；这类题不会调用模型、不会填代码、不会提交，也不会被 `resume` 反复恢复。
 
 ## 恢复、状态与导出
 

@@ -7,7 +7,7 @@ from typing import Iterable
 
 from .artifacts import ArtifactWriter
 from .config import AppConfig
-from .exceptions import LCAutoError, LoginRequired, SafetyStop
+from .exceptions import LCAutoError, LoginRequired, SafetyStop, UnsupportedLanguageError
 from .llm import LLMSolver
 from .logging_utils import logger
 from .models import AttemptRecord, JudgeResult, ProblemRunResult, Verdict
@@ -32,9 +32,11 @@ class AutomationRunner:
                 continue
             if attempted_count >= self.config.max_questions_per_run:
                 break
+            count_as_attempted = True
             try:
                 result = self.run_problem(slug, allow_submit=allow_submit)
                 results.append(result)
+                count_as_attempted = result.verdict != Verdict.UNSUPPORTED_LANGUAGE
             except (LoginRequired, SafetyStop):
                 raise
             except LCAutoError as exc:
@@ -50,8 +52,9 @@ class AutomationRunner:
                         message=str(exc),
                     )
                 )
-            attempted_count += 1
-            if attempted_count < self.config.max_questions_per_run and index < len(candidates):
+            if count_as_attempted:
+                attempted_count += 1
+            if count_as_attempted and attempted_count < self.config.max_questions_per_run and index < len(candidates):
                 self._delay_between_questions()
         return results
 
@@ -69,6 +72,7 @@ class AutomationRunner:
 
         results: list[ProblemRunResult] = []
         attempted_count = 0
+        skipped_count = 0
         while attempted_count < self.config.max_questions_per_run:
             slug = self.page.current_slug()
             if self.config.skip_accepted and self.store.has_accepted(slug):
@@ -76,9 +80,15 @@ class AutomationRunner:
             else:
                 result = self.run_current_problem(slug, allow_submit=allow_submit)
                 results.append(result)
-                attempted_count += 1
-                if not (submit_enabled and result.submitted and result.verdict == Verdict.ACCEPTED):
-                    break
+                if result.verdict == Verdict.UNSUPPORTED_LANGUAGE:
+                    skipped_count += 1
+                    if skipped_count > 5000:
+                        raise LCAutoError("连续跳过过多题目，页面下一题模式已停止。")
+                    logger.info("Skipping unsupported-language problem: {}", slug)
+                else:
+                    attempted_count += 1
+                    if not (submit_enabled and result.submitted and result.verdict == Verdict.ACCEPTED):
+                        break
 
             if attempted_count >= self.config.max_questions_per_run:
                 break
@@ -217,6 +227,14 @@ class AutomationRunner:
         except SafetyStop as exc:
             self.store.mark_final(current_slug, Verdict.SECURITY_STOP, submitted=False, message=str(exc))
             raise
+        except UnsupportedLanguageError as exc:
+            return self._finish(
+                current_slug,
+                Verdict.UNSUPPORTED_LANGUAGE,
+                submitted=False,
+                attempts=0,
+                message=str(exc),
+            )
         except LCAutoError as exc:
             self.store.mark_final(current_slug, Verdict.PAGE_ERROR, submitted=False, message=str(exc))
             raise

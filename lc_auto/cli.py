@@ -294,6 +294,20 @@ def _cmd_run_sequence(
             logger.info("Sequence problem #{} -> {}", frontend_id, problem.slug)
             result = runner.run_problem(problem.slug, allow_submit=allow_submit)
             results.append(result)
+            if result.verdict == Verdict.UNSUPPORTED_LANGUAGE:
+                logger.info("Skipping unsupported-language problem {}: {}", frontend_id, problem.slug)
+                store.mark_sequence_progress(
+                    progress_name,
+                    next_frontend_id=frontend_id + 1,
+                    last_frontend_id=frontend_id,
+                    last_slug=problem.slug,
+                    last_verdict=result.verdict.value,
+                    last_message=result.message,
+                )
+                frontend_id += 1
+                skipped_count += 1
+                _guard_sequence_skips(skipped_count)
+                continue
             attempted_count += 1
             if result.verdict == Verdict.ACCEPTED and result.submitted:
                 store.mark_sequence_progress(

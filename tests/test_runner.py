@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from lc_auto.config import AppConfig, ModelConfig
+from lc_auto.exceptions import UnsupportedLanguageError
 from lc_auto.llm import LLMSolver
 from lc_auto.models import JudgeResult, ProblemSnapshot, Verdict
 from lc_auto.runner import AutomationRunner
@@ -8,10 +9,11 @@ from lc_auto.state import StateStore
 
 
 class FakePage:
-    def __init__(self, verdicts=None, slugs=None, submit_verdicts=None):
+    def __init__(self, verdicts=None, slugs=None, submit_verdicts=None, unsupported_slugs=None):
         self.verdicts = list(verdicts or [])
         self.submit_verdicts = list(submit_verdicts or [])
         self.slugs = slugs or ["two-sum"]
+        self.unsupported_slugs = set(unsupported_slugs or [])
         self.slug_index = 0
         self.filled = []
         self.submitted = False
@@ -28,6 +30,12 @@ class FakePage:
 
     def current_slug(self):
         return self.slugs[self.slug_index]
+
+    def ensure_language(self, language):
+        slug = self.current_slug()
+        if slug in self.unsupported_slugs:
+            raise UnsupportedLanguageError(f"{slug} does not support {language}")
+        return True
 
     def go_next_problem(self):
         self.next_clicks += 1
@@ -196,3 +204,70 @@ def test_runner_page_chain_dry_run_does_not_click_next(tmp_path: Path):
     assert [result.slug for result in results] == ["two-sum"]
     assert results[0].submitted is False
     assert page.next_clicks == 0
+
+
+def test_runner_page_chain_clicks_next_after_unsupported_language(tmp_path: Path):
+    config = AppConfig(
+        model=ModelConfig(provider="fake"),
+        max_questions_per_run=1,
+        max_repairs_per_problem=0,
+        min_delay_seconds=0,
+        max_delay_seconds=0,
+        allow_real_submit=True,
+    )
+    store = StateStore(tmp_path / "state.sqlite3")
+    page = FakePage(
+        slugs=["combine-two-tables", "two-sum"],
+        unsupported_slugs={"combine-two-tables"},
+        submit_verdicts=[JudgeResult(Verdict.ACCEPTED, "Accepted", "Accepted")],
+    )
+    runner = AutomationRunner(config, page, LLMSolver(config.model), store)
+
+    results = runner.run_page_chain(start_slug="combine-two-tables", allow_submit=True)
+
+    assert [result.verdict for result in results] == [Verdict.UNSUPPORTED_LANGUAGE, Verdict.ACCEPTED]
+    assert page.next_clicks == 1
+    assert page.submit_calls == 1
+
+
+def test_runner_marks_unsupported_language_without_submitting(tmp_path: Path):
+    config = AppConfig(
+        model=ModelConfig(provider="fake"),
+        allow_real_submit=True,
+        min_delay_seconds=0,
+        max_delay_seconds=0,
+    )
+    store = StateStore(tmp_path / "state.sqlite3")
+    page = FakePage(slugs=["combine-two-tables"], unsupported_slugs={"combine-two-tables"})
+    runner = AutomationRunner(config, page, LLMSolver(config.model), store)
+
+    result = runner.run_problem("combine-two-tables", allow_submit=True)
+
+    assert result.verdict == Verdict.UNSUPPORTED_LANGUAGE
+    assert result.submitted is False
+    assert result.attempts == 0
+    assert page.filled == []
+    assert page.submit_calls == 0
+    assert store.get_problem_status("combine-two-tables") == Verdict.UNSUPPORTED_LANGUAGE.value
+
+
+def test_runner_run_many_skips_unsupported_and_continues(tmp_path: Path):
+    config = AppConfig(
+        model=ModelConfig(provider="fake"),
+        allow_real_submit=True,
+        max_questions_per_run=1,
+        min_delay_seconds=0,
+        max_delay_seconds=0,
+    )
+    store = StateStore(tmp_path / "state.sqlite3")
+    page = FakePage(
+        slugs=["combine-two-tables", "two-sum"],
+        unsupported_slugs={"combine-two-tables"},
+        submit_verdicts=[JudgeResult(Verdict.ACCEPTED, "Accepted", "Accepted")],
+    )
+    runner = AutomationRunner(config, page, LLMSolver(config.model), store)
+
+    results = runner.run_many(["combine-two-tables", "two-sum"], allow_submit=True)
+
+    assert [result.verdict for result in results] == [Verdict.UNSUPPORTED_LANGUAGE, Verdict.ACCEPTED]
+    assert page.submit_calls == 1
