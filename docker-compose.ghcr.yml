@@ -2,7 +2,7 @@ name: leetcode-automatic
 
 services:
   lc-auto:
-    image: ghcr.io/xieluyao60-coder/leetcode-automatic:latest
+    image: ghcr.io/xieluyao60-coder/lc-auto:latest
     env_file:
       - .env
     volumes:

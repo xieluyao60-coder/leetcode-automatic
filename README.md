@@ -31,16 +31,16 @@ python -m playwright install chromium
 项目发布的公共镜像地址：
 
 ```text
-ghcr.io/xieluyao60-coder/leetcode-automatic:latest
+ghcr.io/xieluyao60-coder/lc-auto:latest
 ```
 
 用户不需要本地构建，克隆仓库后直接拉取镜像：
 
 ```powershell
-git clone https://github.com/xieluyao60-coder/leetcode-automatic.git
-cd leetcode-automatic
+git clone https://github.com/xieluyao60-coder/lc-auto.git
+cd lc-auto
 
-docker pull ghcr.io/xieluyao60-coder/leetcode-automatic:latest
+docker pull ghcr.io/xieluyao60-coder/lc-auto:latest
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
 docker compose -f docker-compose.ghcr.yml run --rm lc-auto init
 ```
